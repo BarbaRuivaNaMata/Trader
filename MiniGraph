@@ -1,0 +1,296 @@
+class MiniGraph(QWidget):
+    def __init__(self,symbol):
+        super().__init__()   
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout) 
+        self.symbol = symbol
+        self.lista_timeframes = ['1m','5m','15m','30m','1h','4h','1d','1w','1M']
+        self.plots=[]
+        self.curves=[]
+        self.text=[]
+        self.data = {}
+        self.decimal_num=None
+        self.ytick_position = {}
+        self.textclose = {}
+        self.line={}
+        self.start()
+
+    def start(self):
+        x=0
+        y=0
+        self.win = pg.GraphicsLayoutWidget()  # Create the graphics layout widget
+        self.win.setGeometry(pg.QtCore.QRect(0, 0, 3, 3))
+        self.layout.addWidget(self.win) 
+        for t in self.lista_timeframes:
+            medias = [[9,'#b07530'],[21,'#ab32b6'],[200,'#071eb5']]
+            if y == 3:
+                y = 0
+                x +=1
+            if t == '1m':
+                limit = 400
+                title = t
+            elif t == '5m':
+                limit = 400
+                title = t
+            elif t == '15m':
+                limit = 400
+                title = t
+            elif t == '30m':
+                limit = 400
+                title = t
+            elif t == '1h':
+                limit = 400
+                title = t
+            elif t == '4h':
+                title = t
+                limit = 400
+            elif t == '1d':
+                limit = 185
+                title = t
+            elif t == '1w':
+                limit = 24
+                title = t
+            elif t == '1M':
+                limit = 6
+                title = t
+                medias = [[3,'#b07530'],[6,'#ab32b6'],[12,'#071eb5']]
+            p = self.win.addPlot(title='',row=x,col=y)
+            p.showGrid(x=False, y=True,alpha=0.3)
+            p.showAxis('right')
+            p.hideAxis('left')
+            data =data_base.imprimir(self.symbol,t)
+            data = data.iloc[::-1].reset_index()
+            data = data.sort_values('datetime', ascending=True)
+            self.data[t] = data
+            if self.decimal_num == None: 
+                self.decimal_num = convert_num(data['close'].iloc[-1])
+            self.ytick_position[t] = data['close'].iloc[-1]
+            p1 = p.plot(data['close'])
+            self.curves.append([t,'p',p1])
+            p1.setVisible(False)
+            legend = pg.LegendItem(colCount=4,offset=(50,0))
+            legend.mouseDragEvent = lambda *args, **kwargs: None
+            legend.hoverEvent = lambda *args, **kwargs: None
+            legend.setParentItem(p.titleLabel)
+            legend.addItem(p1,'Preco')
+            medias_data = []
+            for media in medias:
+                pen = pg.mkPen(color=media[1])
+                media_movel = data['close'].rolling(window=media[0]).mean()
+                medias_data.append((t,media_movel.tail(10).tolist()))
+                m =p.plot(media_movel,pen=pen)
+                legend.addItem(m, f'{media[0]}')
+                self.curves.append([t,'m',m,media[0]])
+            if(medias_data[0][1][-1] > medias_data[1][1][-1] > medias_data[2][1][-1]):
+                text = pg.TextItem(html='<div style="text-align: center; font-size: 10pt;"><span>%s</span></div>' % f'{title}', fill='g')
+                text.setParentItem(p)
+            elif(medias_data[0][1][-1] < medias_data[1][1][-1] < medias_data[2][1][-1]):
+                text = pg.TextItem(html='<div style="text-align: center; font-size: 10pt;"><span>%s</span></div>' % f'{title}', fill='r')
+                text.setParentItem(p)
+            else:
+                text = pg.TextItem(html='<div style="text-align: center; font-size: 10pt;"><span>%s</span></div>' % f'{title}', fill='y')
+                text.setParentItem(p)
+            vb = p.getViewBox()
+            vb.t = t
+            self.text.append([t,text])
+            self.plots.append((t,p,limit))
+            y+=1
+
+        for plot in self.plots:
+            p = plot[1]
+            t = plot[0]
+            limit = plot[2]
+            vb = p.getViewBox()
+            data = self.data[vb.t]
+            dataend = len(data)
+            datastart= dataend - limit
+            vb.setXRange(datastart,dataend)
+            vr = vb.viewRange()
+            range = data['close'][int(vr[0][0]):int(vr[0][1])]
+            if t == '1M':
+                x_max = len(data)+2
+            elif t =='1w':
+                x_max = len(data)+5
+            else:
+                x_max = len(data)+20
+            vb.setLimits(xMin=0,xMax=x_max,yMin=data['close'].min(),yMax=data['close'].max())
+            vb.setMouseEnabled(x=True, y=False)
+            vb.enableAutoRange(x=False, y=True)
+            vb.setAutoVisible(x=False, y=True)
+            vb.sigXRangeChanged.connect(self.update_rangex) 
+            vb.sigYRangeChanged.connect(self.update_rangey)
+
+    def resizeEvent(self, event):
+        for plot in self.plots:
+            p = plot[1]
+            vb = p.getViewBox()
+            vr = vb.viewRange()
+            self.update_rangex(vb,vr[0])
+            self.update_rangey(vb,vr)
+
+
+    def update(self):
+        for t in self.lista_timeframes:
+            data =data_base.imprimir(self.symbol,t)
+            data = data.iloc[::-1].reset_index()
+            data = data.sort_values('datetime', ascending=True)
+            self.data[t] = data
+            medias_data = []
+            for curve in self.curves:
+                if curve[0] == t:
+                    if curve[1] == 'm':
+                        curve[2].clear()
+                        media = data['close'].rolling(window=curve[3]).mean()
+                        curve[2].setData(media)
+                        medias_data.append((t,media.tail(10).tolist())) 
+                    else:
+                        curve[2].clear()
+                        curve[2].setData(data['close'])
+            for text in self.text:
+                if text[0] == t:
+                    if(medias_data[0][1][-1] > medias_data[1][1][-1] > medias_data[2][1][-1]):
+                        text[1].setHtml('<div style="text-align: center; font-size: 10pt;"><span>%s</span></div>' % f'{t}')
+                        c= QBrush(QColor('#00ff00'))
+                        text[1].fill=c
+                    elif(medias_data[0][1][-1] < medias_data[1][1][-1] < medias_data[2][1][-1]):
+                        text[1].setHtml('<div style="text-align: center; font-size: 10pt;"><span>%s</span></div>' % f'{t}')
+                        c= QBrush(QColor('#ff0000'))
+                        text[1].fill=c
+                    else:
+                        text[1].setHtml('<div style="text-align: center; font-size: 10pt;"><span>%s</span></div>' % f'{t}')
+                        c= QBrush(QColor('#ffff00'))
+                        text[1].fill=c
+            for ps in self.plots:   
+                if ps[0] == t:
+                    p = ps[1]
+                    limit = ps[2]
+                    vb = p.getViewBox()
+                    dataend = len(data)
+                    datastart= dataend - limit
+                    vr = vb.viewRange()
+                    range = data['close'][int(vr[0][0]):int(vr[0][1])]
+                    if t == '1M':
+                        x_max = len(data)+1
+                    elif t =='1w':
+                        x_max = len(data)+3
+                    else:
+                        x_max = len(data)+20
+                    vb.setLimits(xMin=0,xMax=x_max,yMin=data['close'].min(),yMax=data['close'].max())
+                    vb.setXRange(datastart,dataend)
+                    vb.setMouseEnabled(x=True, y=False)
+                    vb.enableAutoRange(x=False, y=True)
+                    vb.setAutoVisible(x=False, y=True)
+                    vb.t = t
+                    vb.sigXRangeChanged.connect(self.update_rangex) 
+                    vb.sigYRangeChanged.connect(self.update_rangey) 
+
+    def update_rangex(self,vb,viewRange):
+        vr0=int(viewRange[0])
+        if(vr0 <= 0):
+            vr0=1
+        vr1=int(viewRange[1])
+        if vr1 > (len(self.data[vb.t])):
+            vr1 = len(self.data[vb.t])
+        plot = vb.parentItem()
+        x_axis = plot.getAxis('bottom')
+        total = vr1 - vr0
+        ticks_position=[]
+        timesframeslongos = ['1d','1w','1M']
+        timesframesmedios = ['30m','1h','4h']
+        timesframescurtos = ['1m','5m','15m']
+        if ( vb.t in timesframeslongos ):
+            num_ticks = 3
+        else:
+            num_ticks = 5
+        espaco = total//num_ticks
+        x = vr0+espaco//2
+        for index,dt in (self.data[vb.t][vr0:vr1]).iterrows():
+            if x == index:
+                    tickstr = dt['datetime']
+                    if (vb.t in timesframescurtos):
+                        tickstr = str(datetime.datetime.strptime(tickstr,"%Y-%m-%d %H:%M:%S%z").strftime('%d-%H:%M'))
+                    elif (vb.t in timesframesmedios):
+                        tickstr = str(datetime.datetime.strptime(tickstr,"%Y-%m-%d %H:%M:%S%z").strftime('%m/%d-%H:%M'))
+                    elif (vb.t in timesframeslongos ):
+                        tickstr = str(datetime.datetime.strptime(tickstr,"%Y-%m-%d %H:%M:%S%z").strftime('%Y/%m/%d'))
+                    ticks_position.append((index,tickstr))
+                    x = x+espaco
+        x_axis.setTicks([ticks_position])  
+    
+    def update_rangey(self,vb,viewRange):
+        plot = vb.parentItem()
+        y_axis = plot.getAxis('right')
+        viewRange = vb.viewRange()
+        vr0=viewRange[0][0]
+        vr1=viewRange[0][1]
+        if(vr0 < 0):
+            vr0=0
+        low = viewRange[1][0]
+        max = viewRange[1][1]
+        vrdif = (max - low)
+        PERCENT = 5
+        vrchange = (PERCENT/100) * vrdif
+        tick=low
+        roundvalue = self.decimal_num
+        if(roundvalue > 6):
+            roundvalue = 0
+        if vr0 != 0 and vr1 != 1:
+            Go = 1
+            ticks_position=[]
+            if (vrchange < 1 and roundvalue == 0):
+                vrchange = 1
+            tick = low
+            ticks_position.append([tick,format(tick,f'.{roundvalue}f')])
+            while Go == 1:
+                if tick >= max:
+                    tick = max
+                    ticks_position.append([tick,format(tick,f'.{roundvalue}f')])
+                    Go = 0
+                else:
+                    ticks_position.append([tick,format(tick,f'.{roundvalue}f')])
+                    tick+=vrchange
+            num_ticks = 6
+            total = len(ticks_position)
+            espaco = total//num_ticks 
+            x = 1 
+            ticks_pos=[] 
+            for index in range(len(ticks_position)):
+                if x == index:
+                    ticks_pos.append(ticks_position[index])
+                    x = x+espaco
+                elif index == len(ticks_position)-1:
+                    ticks_pos.append(ticks_position[index])
+            y_axis.setTicks([ticks_pos])
+            y_axis = plot.getAxis('right')
+            if(vb.t not in self.textclose):
+                self.textclose[vb.t] = pg.TextItem(html='<div style="text-align: center; font-size: 10pt; padding: 5px; border: none; margin: 0;"><span>%s</span></div>' % format(self.ytick_position[vb.t],f'.{roundvalue}f'), fill=(255, 165, 0, 255))
+                self.textclose[vb.t].setParentItem(plot)
+            else:
+                self.textclose[vb.t].setHtml('<div style="text-align: center; font-size: 10pt;"><span>%s</span></div>' % format(self.ytick_position[vb.t],f'.{roundvalue}f'))
+            if self.ytick_position[vb.t] > low and self.ytick_position[vb.t] < max:
+                point = pg.QtCore.QPointF(vr1,self.ytick_position[vb.t])                
+                geometry = plot.geometry()
+                plot_point = vb.mapFromView(point)
+                self.textclose[vb.t].setPos(plot_point.x()+2,plot_point.y()+18)
+                self.textclose[vb.t].setZValue(99999)
+            elif self.ytick_position[vb.t] <= low:
+                point = pg.QtCore.QPointF(vr1,low)                
+                geometry = plot.geometry()
+                print (geometry)
+                plot_point = vb.mapFromView(point)
+                self.textclose[vb.t].setPos(plot_point.x()+2,plot_point.y()+18)
+                self.textclose[vb.t].setZValue(99999)
+            elif self.ytick_position[vb.t] >= max:
+                geometry = plot.geometry()
+                point = pg.QtCore.QPointF(vr1,max)                
+                plot_point = vb.mapFromView(point)
+                self.textclose[vb.t].setPos(plot_point.x()+2,10)
+                self.textclose[vb.t].setZValue(99999)
+            pen = pg.mkPen(color=(255, 165, 0, 255), width=1,style=QtCore.Qt.DashLine,dash=[20, 10]) 
+            if vb.t in self.line:
+                plot.removeItem(self.line[vb.t])
+            self.line[vb.t] = pg.InfiniteLine(angle=0, movable=False,pen=pen) 
+            self.line[vb.t].setZValue(-10)
+            plot.addItem(self.line[vb.t], ignoreBounds=True)
+            self.line[vb.t].setPos(self.ytick_position[vb.t])
+
